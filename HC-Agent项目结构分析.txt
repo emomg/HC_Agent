@@ -1,0 +1,681 @@
+================================================================================
+              HC-Agent 项目结构全景分析报告
+              Generated: 2026-05-07
+================================================================================
+
+一、项目概览
+================================================================================
+
+项目名称：HC-Agent (Hybrid Context Agent)
+项目路径：D:\桌面\HC-Agent\
+代码总量：约 90 KB (15 个 Python 源文件 + 辅助资源)
+设计哲学：受 DeepSeek V4 论文启发，CSA+HCA 混合注意力记忆 + CDH 上下文预算
+         + 论文进化系统 + 10 轮反思引擎，原生 ReAct 推理循环
+
+核心创新点：
+  [1] CSA (Contextual Semantic Attention) -- 语义相关性评分
+  [2] HCA (Historical Context Attention) -- 历史注意力评分
+  [3] CDH (Character-Domain Heuristic) -- 字符域启发式上下文预算分配
+  [4] 论文进化系统 -- 自动搜集论文 -> 提取技能 -> 权重升级
+  [5] 10 轮反思引擎 -- 历史压缩、技能分析合并、记忆优化
+
+
+================================================================================
+二、完整目录树
+================================================================================
+
+HC-Agent/
+|
+|-- main.py                    77 行    CLI 入口点
+|-- config.py                  61 行    四层配置数据结构
+|-- llm_core.py               196 行    LLM 通信层 (OpenAI/Claude 兼容)
+|-- agent_loop.py             277 行    ReAct 推理循环 + Inner Monologue
+|-- tools.py                  351 行    动态工具注册表 (9 个原子工具)
+|-- hc_agent.py               246 行    主协调器 (全部组件编排)
+|-- mykey.py                  ~450 行   多模型 API Key 统一管理
+|
+|-- memory/
+|   |-- __init__.py
+|   |-- store.py              302 行    CSA+HCA 混合注意力记忆存储
+|   |-- budget.py             150 行    CDH 上下文预算分配器
+|   |-- index.py               92 行    L1 索引快速检索层
+|
+|-- evolution/
+|   |-- __init__.py
+|   |-- paper_collector.py    180 行    论文自动搜集 + 知识提取
+|   |-- skill_upgrader.py     186 行    技能生命周期管理 + 权重升级
+|   |-- reflection.py         196 行    10 轮反思引擎 (三阶段)
+|
+|-- frontends/
+|   |-- __init__.py
+|   |-- console.py            ~120 行   彩色终端交互 UI
+|
+|-- assets/
+|   |-- sys_prompt.txt         ~60 行   系统提示词模板
+|
+|-- HC-Agent使用指南.txt      完整使用文档 (10 章)
+|-- README.md                  项目 README
+|-- requirements.txt           依赖清单
+
+
+================================================================================
+三、模块依赖关系图
+================================================================================
+
+                    main.py (CLI 入口)
+                        |
+                        v
+                  hc_agent.py (主协调器)
+                   /    |    |    \
+                  v     v    v     v
+          agent_loop  store  tools  evolution
+              |        |     |       |
+              v        v     v       +--- paper_collector
+           llm_core  budget  code_run    +--- skill_upgrader
+              |        |     file_*      +--- reflection
+              v        v     web_*
+          OpenAI API  index  shell_exec
+          Claude API         memory_op
+          DeepSeek API       skill_op
+          (任意兼容 API)
+
+  外部依赖：
+    openai    -- LLM API 调用
+    tiktoken  -- Token 精确计数
+    pyyaml    -- 配置文件解析
+    requests  -- HTTP 请求 (论文搜集)
+    rich      -- 终端美化输出
+
+
+================================================================================
+四、各模块详细分析
+================================================================================
+
+  4.1 main.py -- CLI 入口 (77 行)
+  -----------------------------------------------------------------------
+  职责：命令行参数解析，启动模式分发
+
+  启动模式：
+    --task "xxx"       单任务模式，执行后退出
+    --evolve           触发论文进化周期
+    --reflection       触发反思周期
+    --config xxx.json  加载自定义配置
+    无参数              交互式 Console 模式
+
+  流程：
+    1. 解析 args
+    2. 加载 Config (支持 JSON 覆盖)
+    3. 实例化 HCAgent
+    4. 分发到对应模式
+    5. 结束时 save_state()
+
+
+  4.2 config.py -- 配置管理 (61 行)
+  -----------------------------------------------------------------------
+  四层 dataclass 嵌套结构：
+
+    AgentConfig (顶层)
+      |-- llm: LLMConfig           LLM 通信配置
+      |     |-- provider            "openai"/"deepseek"/"claude" 等
+      |     |-- model               "gpt-4o"/"deepseek-chat" 等
+      |     |-- api_key             API 密钥
+      |     |-- base_url            自定义 API 地址
+      |     |-- max_tokens          最大生成 token (默认 4096)
+      |     |-- temperature         温度参数 (默认 0.7)
+      |
+      |-- memory: MemoryConfig     记忆系统配置
+      |     |-- csa_alpha           CSA 关键词权重 (默认 0.6)
+      |     |-- csa_beta            CSA 时间衰减权重 (默认 0.3)
+      |     |-- csa_gamma           CSA 频率权重 (默认 0.1)
+      |     |-- csa_decay_hours     时间衰减半衰期 (默认 24h)
+      |     |-- hca_compress_threshold  压缩阈值 (默认 50 条)
+      |     |-- hca_max_layers      最大层数 (默认 4)
+      |     |-- cdh_total_budget    总预算 token (默认 28000)
+      |     |-- cdh_working_ratio   工作记忆占比 (默认 0.40)
+      |     |-- cdh_skill_ratio     技能占比 (默认 0.25)
+      |     |-- cdh_fact_ratio      事实占比 (默认 0.15)
+      |     |-- cdh_history_ratio   历史占比 (默认 0.20)
+      |     |-- cdh_domain_boost    域匹配加成 (默认 1.5)
+      |
+      |-- evolution: EvolutionConfig  进化系统配置
+      |     |-- paper_collect_interval  论文搜集间隔 (默认 50 轮)
+      |     |-- reflect_interval        反思间隔 (默认 10 轮)
+      |     |-- max_papers_per_collect  每次最多论文数 (默认 5)
+      |     |-- skill_merge_threshold   技能合并阈值 (默认 0.7)
+      |     |-- arxiv_max_results       arXiv 查询上限 (默认 20)
+      |
+      |-- max_turns: int           最大对话轮数 (默认 100)
+      |-- cwd: str                 工作目录
+      |-- log_level: str           日志级别
+
+  环境变量自动加载：
+    HC_API_KEY   -> llm.api_key
+    HC_BASE_URL  -> llm.base_url
+    HC_MODEL     -> llm.model
+
+
+  4.3 llm_core.py -- LLM 通信层 (196 行)
+  -----------------------------------------------------------------------
+  职责：统一 LLM API 调用，支持多 Provider
+
+  核心类：LLMCore
+
+  支持的 Provider 及 URL：
+    openai    -> https://api.openai.com/v1
+    deepseek  -> https://api.deepseek.com/v1
+    claude    -> https://api.anthropic.com/v1
+    moonshot  -> https://api.moonshot.cn/v1
+    qwen      -> https://dashscope.aliyuncs.com/compatible-mode/v1
+
+  关键功能：
+    - OpenAI 兼容 API 调用 (适用于大部分国产模型)
+    - Anthropic Claude 原生 API 调用
+    - SSE 流式输出 (chat_stream)
+    - 自动重试 + 指数退避 (最多 3 次)
+    - tiktoken Token 计数 (count_tokens)
+    - Tool calling 支持 (function calling)
+
+  数据结构：
+    LLMMessage: role + content + tool_calls
+    LLMResponse: content + tool_calls + usage + finish_reason
+
+
+  4.4 memory/store.py -- 记忆存储 (302 行)
+  -----------------------------------------------------------------------
+  职责：CSA+HCA 混合注意力记忆系统
+
+  四层记忆结构：
+    L0 (Raw)      原始对话记录，自动存储
+    L1 (Index)    索引摘要，快速检索
+    L2 (Summary)  压缩摘要，反思生成
+    L3 (Skill)    技能条目，权重管理
+
+  MemoryItem 数据结构：
+    id: str              唯一标识 (SHA1 前 8 位)
+    content: str         内容文本
+    layer: int           层级 (0-3)
+    tags: list[str]      标签列表
+    domain: str          知识域
+    created_at: float    创建时间戳
+    last_accessed: float 最后访问时间戳
+    access_count: int    累计访问次数
+    source: str          来源 ("user"/"tool"/"paper")
+    importance: float    重要性 [0.0, 1.0]
+
+  CSA 评分公式：
+    score_csa = keyword_relevance * alpha
+              + recency_decay(t) * beta
+              + log(1 + access_count) * gamma
+
+    其中：
+      keyword_relevance = TF-IDF 匹配度
+      recency_decay(t)  = exp(-t / decay_hours)
+      alpha=0.6, beta=0.3, gamma=0.1
+
+  HCA 评分公式：
+    score_hca = layer_priority * access_recency * compression_bonus
+
+    其中：
+      layer_priority    = [1.0, 0.8, 0.6, 0.4] (L0-L3)
+      access_recency    = exp(-time_since_access / 6h)
+      compression_bonus = 1.0 + 0.1 * (max_layers - layer)
+
+  混合分数：
+    final_score = w_csa * score_csa + w_hca * score_hca
+    (w_csa = 0.6, w_hca = 0.4 默认)
+
+  核心方法：
+    add(content, layer, tags, domain, source, importance)
+    search(query, top_k, domain_filter, layer_filter)
+    compress(layer)  -- HCA 层间压缩
+    get_all(layer)   -- 获取某层全部条目
+    get_stats()      -- 统计信息
+
+
+  4.5 memory/budget.py -- CDH 预算分配器 (150 行)
+  -----------------------------------------------------------------------
+  职责：将有限的上下文窗口分配给不同记忆类别
+
+  CDH 公式：
+    score_i = relevance_i^alpha * recency_i^beta * importance_i^gamma
+    budget_i = total_budget * score_i / sum(scores)
+
+  分区分配：
+    working  (40%)  工作记忆 -- 当前任务直接相关
+    skills   (25%)  技能记忆 -- SOP/技能条目
+    facts    (15%)  事实记忆 -- 知识条目
+    history  (20%)  历史记录 -- 对话历史
+
+  域匹配加成：
+    如果条目 domain 与当前查询 domain 匹配，
+    其预算分配乘以 cdh_domain_boost (默认 1.5x)
+
+  核心方法：
+    allocate(query, store, history_text, total_budget)
+      -> BudgetAllocation(working, skills, facts, history)
+
+  返回结构：
+    BudgetAllocation:
+      working: list[MemoryItem]   工作上下文条目
+      skills: list[MemoryItem]    技能上下文条目
+      facts: list[MemoryItem]     事实上下文条目
+      history: list[str]          历史文本片段
+      total_tokens: int           已分配总 token
+      remaining: int              剩余预算
+
+
+  4.6 memory/index.py -- L1 索引层 (92 行)
+  -----------------------------------------------------------------------
+  职责：快速检索 L1 层记忆条目
+
+  索引结构：
+    domain_index: dict[str, list]  按域索引
+    tag_index: dict[str, list]     按标签索引
+    keyword_index: dict[str, list] 按关键词索引
+
+  核心方法：
+    index(item)        -- 添加索引
+    search(query)      -- 多维检索
+    remove(item_id)    -- 移除索引
+    rebuild(store)     -- 重建索引
+
+
+  4.7 agent_loop.py -- ReAct 推理循环 (277 行)
+  -----------------------------------------------------------------------
+  职责：实现 ReAct (Reason+Act) 推理循环
+
+  五步循环：
+    Step 1: Perceive
+      - 调用 CDHBudgetManager.allocate() 构建上下文
+      - 注入工作记忆、技能、事实、历史
+
+    Step 2: Think (Inner Monologue)
+      - 构建 prompt 包含：系统提示 + 上下文 + 用户输入
+      - 调用 LLM 进行推理
+
+    Step 3: Act
+      - 解析 LLM 输出，提取 tool_call
+      - 路由到 ToolRegistry 执行
+
+    Step 4: Observe
+      - 收集工具执行结果
+      - 存入记忆系统 (L0)
+
+    Step 5: Reflect
+      - 每 10 轮触发 ReflectionEngine
+      - 压缩历史、分析技能、优化记忆
+
+  Inner Monologue 输出格式：
+    <think>
+    [推理过程]
+    </think>
+    <tool>
+    {"name": "tool_name", "args": {...}}
+    </tool>
+    -- 或 --
+    <answer>
+    [最终回答]
+    </answer>
+
+  TurnRecord 数据结构：
+    turn_id: int
+    user_input: str
+    agent_output: str
+    tool_calls: list[dict]
+    tool_results: list[dict]
+    context_used: BudgetAllocation
+    timestamp: float
+
+
+  4.8 tools.py -- 工具注册表 (351 行)
+  -----------------------------------------------------------------------
+  职责：动态工具注册、路由、执行
+
+  内置 9 个原子工具：
+  +----------+-----------------------------+-----------------------------------+
+  | 工具名    | 功能描述                     | 参数                               |
+  +----------+-----------------------------+-----------------------------------+
+  | code_run | 执行 Python/PowerShell 代码  | code, lang, timeout               |
+  | file_read| 读取文件 (支持行范围/搜索)   | path, start, count, keyword       |
+  | file_write| 创建/覆盖/追加文件          | path, content, mode               |
+  | file_patch| 精确替换文件内容             | path, old_content, new_content    |
+  | web_search| 网络搜索                    | query, engine, max_results        |
+  | web_scan | 获取网页简化 HTML            | url, text_only                    |
+  | shell_exec| 执行系统命令                | command, timeout                  |
+  | memory_op| 记忆增删改查                 | operation, query, content         |
+  | skill_op | 技能管理                     | operation, skill_name, content    |
+  +----------+-----------------------------+-----------------------------------+
+
+  Tool 数据结构：
+    name: str           工具名
+    fn: Callable        执行函数
+    description: str    描述
+    schema: dict        JSON Schema 参数定义
+
+  核心方法：
+    register(name, fn, description, schema)  -- 注册工具
+    execute(name, args) -> ToolResult        -- 执行工具
+    list_tools() -> list[dict]               -- 列出所有工具
+    to_openai_tools() -> list[dict]          -- 转换为 OpenAI function calling 格式
+
+
+  4.9 evolution/paper_collector.py -- 论文搜集器 (180 行)
+  -----------------------------------------------------------------------
+  职责：自动搜索和提取论文知识
+
+  工作流：
+    1. 根据 topic/domain 构建搜索查询
+    2. 通过 arXiv API 搜索论文
+    3. 获取论文摘要和关键信息
+    4. 提取 key_findings 和 techniques
+    5. 计算 relevance_score
+    6. 转换为 MemoryItem (L2) 和 Skill 候选 (L3)
+
+  Paper 数据结构：
+    title: str              论文标题
+    url: str                论文链接
+    abstract: str           摘要
+    key_findings: list      关键发现
+    techniques: list        技术方法
+    relevance_score: float  相关性 [0,1]
+    domain: str             所属领域
+    collected_at: float     搜集时间
+
+  核心方法：
+    collect(topic, domain) -> list[Paper]   -- 搜集论文
+    extract_knowledge(paper) -> dict        -- 提取知识
+    to_memory_items(papers) -> list         -- 转为记忆条目
+
+
+  4.10 evolution/skill_upgrader.py -- 技能升级器 (186 行)
+  -----------------------------------------------------------------------
+  职责：技能生命周期管理
+
+  技能生命周期：
+    Discovery -> Creation -> Usage -> Upgrade -> Pruning
+
+  权重更新公式：
+    new_weight = old_weight * DECAY_RATE
+               + usage_count * USAGE_BOOST
+               + paper_validation * PAPER_BOOST
+
+  关键常量：
+    USAGE_BOOST     = 0.05    每次成功使用加成
+    PAPER_BOOST     = 0.10    论文验证加成
+    DECAY_RATE      = 0.995   每天未使用衰减率
+    MERGE_THRESHOLD = 0.70    技能合并相似度阈值
+    PRUNE_THRESHOLD = 0.10    最低保留置信度
+
+  核心方法：
+    upgrade_from_papers(topic, domain) -> list[str]
+    record_usage(skill_name, success) -> float
+    merge_skills(skill_a, skill_b) -> str
+    prune_unused(days_threshold) -> list[str]
+    get_skill_stats() -> dict
+
+
+  4.11 evolution/reflection.py -- 反思引擎 (196 行)
+  -----------------------------------------------------------------------
+  职责：每 10 轮执行三阶段反思优化
+
+  Phase 1: 历史压缩 (History Compression)
+    - 将最近 N 轮对话总结为简洁笔记
+    - 提取关键决策和结果
+    - 存储为 L2 压缩摘要
+    - 更新 L1 索引
+
+  Phase 2: 技能分析 (Skill Analysis)
+    - 扫描近期工具使用模式
+    - 高频成功技能 -> 提升置信度
+    - 未使用技能 -> 应用衰减
+    - 发现技能缺口 -> 标记为进化候选
+
+  Phase 3: 记忆优化 (Memory Optimization)
+    - 合并相似 L0 条目
+    - 高访问 L0 条目提升到 L1
+    - 老旧 L1 条目压缩到 L2
+    - 低重要性条目修剪
+    - 重建 L1 索引
+
+  核心方法：
+    reflect(turns, store) -> dict    -- 运行完整反思周期
+    compress_history(turns) -> str   -- 历史压缩
+    analyze_skills(store) -> dict    -- 技能分析
+    optimize_memory(store) -> dict   -- 记忆优化
+
+  反思报告结构：
+    {
+      "reflection_count": 3,
+      "turns_processed": 30,
+      "history_compressed": 15,
+      "skills_boosted": 2,
+      "skills_decayed": 1,
+      "memory_merged": 3,
+      "memory_promoted": 5,
+      "memory_pruned": 2,
+      "duration_ms": 1250
+    }
+
+
+  4.12 hc_agent.py -- 主协调器 (246 行)
+  -----------------------------------------------------------------------
+  职责：全部组件编排和生命周期管理
+
+  初始化流程：
+    1. 从 Config 创建全部子组件
+    2. MemoryStore + CDHBudgetManager + L1Index
+    3. LLMCore (配置 LLM 通信)
+    4. ToolRegistry (注册 9 个内置工具)
+    5. AgentLoop (注入所有依赖)
+    6. PaperCollector + SkillUpgrader + ReflectionEngine
+    7. 加载持久化状态 (如果存在)
+
+  组件连接图：
+    HCAgent
+      self.store      = MemoryStore(max_capacity)
+      self.budget     = CDHBudgetManager(store, total_budget)
+      self.index      = L1Index()
+      self.llm        = LLMCore(provider, model, api_key, base_url)
+      self.tools      = ToolRegistry()
+      self.loop       = AgentLoop(llm, tools, budget, store, reflection)
+      self.collector  = PaperCollector(tools, store)
+      self.upgrader   = SkillUpgrader(store, collector)
+      self.reflection = ReflectionEngine(store)
+
+  公开方法：
+    chat(user_input: str) -> str            完整对话
+    chat_stream(user_input) -> Generator    流式对话
+    evolve() -> dict                        运行进化周期
+    reflect() -> dict                       运行反思周期
+    save_state() -> None                    持久化到 JSON
+    load_state() -> None                    从 JSON 恢复
+    get_stats() -> dict                     获取运行统计
+
+
+  4.13 mykey.py -- 多模型 Key 管理 (~450 行)
+  -----------------------------------------------------------------------
+  职责：统一管理 8 种 LLM Provider 的 API Key 和配置
+
+  支持的 Provider：
+    openai     OpenAI (GPT-4o 等)
+    deepseek   DeepSeek (deepseek-chat/reasoner)
+    claude     Anthropic Claude (claude-sonnet-4)
+    gemini     Google Gemini (gemini-2.5-flash)
+    qwen       通义千问 (qwen-max)
+    moonshot    月之暗面 (moonshot-v1-8k)
+    zhipu      智谱 GLM (glm-4-plus)
+    ollama     本地 Ollama (llama3 等)
+
+  Key 查找优先级：
+    1. 环境变量 HC_{PROVIDER}_API_KEY
+    2. 环境变量 HC_API_KEY
+    3. 环境变量 {PROVIDER}_API_KEY
+    4. keys.json 配置文件
+
+  核心方法：
+    get_llm_config(provider_or_model, **overrides) -> dict
+    list_providers() -> list[str]
+    save_keys_template() -> str           生成 keys.json 模板
+    detect_provider(model_name) -> str    自动识别 provider
+
+
+  4.14 frontends/console.py -- 终端 UI (~120 行)
+  -----------------------------------------------------------------------
+  职责：交互式终端界面
+
+  功能：
+    - rich 库彩色输出
+    - 命令历史 (上下箭头)
+    - 流式实时显示
+    - Ctrl+C 优雅退出
+    - 内置命令：
+      /help     显示帮助
+      /quit     退出
+      /clear    清屏
+      /history  查看对话历史
+      /memory   查看记忆统计
+      /skills   查看技能列表
+
+
+  4.15 assets/sys_prompt.txt -- 系统提示词 (~60 行)
+  -----------------------------------------------------------------------
+  职责：定义 Agent 的角色和行为规范
+
+  包含内容：
+    - 角色定义 (智能助手)
+    - 推理规范 (Inner Monologue 格式)
+    - 工具使用指导
+    - 记忆操作规范
+    - 安全约束
+
+
+================================================================================
+五、数据流全景
+================================================================================
+
+  [用户输入]
+      |
+      v
+  [Console Frontend] -- 解析命令 / 传递输入
+      |
+      v
+  [HC Agent.chat()] -- 主协调器入口
+      |
+      v
+  [CDH Budget Manager] -- 分配上下文预算
+      |  调用 MemoryStore.search()
+      |  按 CSA+HCA 混合分数排序
+      |  分配 working/skills/facts/history
+      |
+      v
+  [Agent Loop] -- ReAct 推理循环
+      |
+      +---> [LLM Core] -- 调用 LLM API
+      |         |
+      |         v
+      |     [LLM Response] -- 含 tool_call 或 answer
+      |
+      +---> [Tool Registry] -- 执行工具
+      |         |
+      |         v
+      |     [Tool Result] -- 工具执行结果
+      |
+      +---> [Memory Store] -- 存储到 L0
+      |
+      +---> 每 10 轮 --> [Reflection Engine]
+      |                      |
+      |                      +---> 历史压缩 -> L2
+      |                      +---> 技能分析 -> 升级/衰减
+      |                      +---> 记忆优化 -> 合并/提升/修剪
+      |
+      +---> 每 50 轮 --> [Paper Collector]
+                              |
+                              v
+                         [Skill Upgrader]
+                              |
+                              v
+                         L3 技能更新
+
+  持久化：
+    save_state() -> ./temp/hc_state.json
+      含：全部 MemoryItem + TurnRecord + SkillState + 配置
+
+
+================================================================================
+六、设计模式与架构特点
+================================================================================
+
+  [1] 分层架构
+      表现层 (Console) -> 协调层 (HCAgent) -> 核心层 (Loop/Store/Tools)
+
+  [2] 依赖注入
+      HCAgent 在初始化时将组件注入到子模块，解耦各层
+
+  [3] 策略模式
+      CSA/HCA 评分算法可独立替换，CDH 分配策略可配置
+
+  [4] 观察者模式
+      每轮对话自动更新记忆，反思引擎定期触发
+
+  [5] 工厂模式
+      mykey.py 根据 provider 名称自动创建 LLM 配置
+
+  [6] 组合模式
+      ToolRegistry 统一管理异构工具，对外提供一致接口
+
+
+================================================================================
+七、关键算法总结
+================================================================================
+
+  7.1 CSA 评分
+      S_csa = TF_IDF(q, item) * 0.6
+            + exp(-age_hours / 24) * 0.3
+            + log(1 + access_count) * 0.1
+
+  7.2 HCA 评分
+      S_hca = [1.0, 0.8, 0.6, 0.4][layer]
+            * exp(-hours_since_access / 6)
+            * (1 + 0.1 * (4 - layer))
+
+  7.3 混合分数
+      S_final = 0.6 * S_csa + 0.4 * S_hca
+
+  7.4 CDH 预算分配
+      budget_i = total * S_final^norm / sum(S_final_all)
+      domain_match_bonus = 1.5x
+
+  7.5 技能权重更新
+      W_new = W_old * 0.995 + usage * 0.05 + paper * 0.10
+
+  7.6 技能衰减
+      W_daily = W * 0.995^(days_since_use)
+      prune if W < 0.10
+
+
+================================================================================
+八、扩展点
+================================================================================
+
+  [1] 添加新 LLM Provider
+      在 llm_core.py 的 PROVIDER_URLS 中添加映射
+
+  [2] 添加新工具
+      使用 registry.register() 注册自定义工具
+
+  [3] 自定义反思策略
+      继承 ReflectionEngine，重写 phase1/phase2/phase3
+
+  [4] 自定义进化策略
+      继承 PaperCollector 或 SkillUpgrader
+
+  [5] 添加新前端
+      继承 ConsoleFrontend，实现 start() 方法
+
+  [6] 自定义评分算法
+      在 MemoryStore 中重写 csa_score / hca_score 方法
+
+
+================================================================================
+                    HC-Agent 项目结构全景分析报告 -- 完
+================================================================================

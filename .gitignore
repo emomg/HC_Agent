@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+
+# Secrets
+.env
+*.key
+*.pem
+
+# Logs
+*.log
+
+# Runtime state / cache
+state/
+memory/working_memory.json
+memory/working_memory.json.tmp
+frontends/memory/
+
+# Debug / temp files
+debug_payload.json
+turn*_payload.json
+temp/
+autonomous_reports/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local credentials (contains API keys)
+mykey.py
