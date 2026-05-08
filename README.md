@@ -1,5 +1,13 @@
 # HC Agent
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![GitHub Stars](https://img.shields.io/github/stars/emomg/HC_Agent?style=social)](https://github.com/emomg/HC_Agent/stargazers)
+[![GitHub Forks](https://img.shields.io/github/forks/emomg/HC_Agent?style=social)](https://github.com/emomg/HC_Agent/network/members)
+[![GitHub Issues](https://img.shields.io/github/issues/emomg/HC_Agent)](https://github.com/emomg/HC_Agent/issues)
+[![CI](https://github.com/emomg/HC_Agent/actions/workflows/ci.yml/badge.svg)](https://github.com/emomg/HC_Agent/actions/workflows/ci.yml)
+
+
 A next-generation AI agent framework featuring **CSA+HCA Hybrid Attention Memory**, **CDH Context Budget**, **Paper Evolution System**, and **10-turn Reflection Engine**.
 
 ## Core Innovations
