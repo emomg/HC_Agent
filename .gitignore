@@ -39,4 +39,3 @@ autonomous_reports/
 Thumbs.db
 
 # Local credentials (contains API keys)
-mykey.py
