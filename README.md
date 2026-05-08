@@ -26,46 +26,48 @@ Every 10 conversation turns:
 - **Skill Analysis**: Identifies underperforming skills, merges similar ones
 - **Memory Optimization**: Boosts high-value items, compresses stale ones
 
+### 5. Deep Thinker
+- **Multi-step Reasoning**: Analyzes tasks and decomposes into sub-problems before execution
+- **Structured Planning**: Builds a comprehensive plan and stores it in working memory for the agent loop
+
 ## Architecture
 
 ```
 HC-Agent/
-├── main.py                    # Entry point: CLI args + startup
-├── config.py                  # Configuration: HCConfig + get_config()
-├── mykey.py                   # LLM credential config (pure config, no code)
-├── hc_agent.py                # Core orchestrator: wires all subsystems
-├── agent_loop.py              # ReAct reasoning loop
-├── llm_core.py                # LLM communication layer (streaming)
-├── tools.py                   # Tool registry + built-in tools
-├── self_reasoner.py           # Self-reasoning module
-├── proactive.py               # Proactive behavior triggers
-├── dynamic_prompt.py          # Dynamic prompt builder
-├── browser_tool.py            # Browser automation tool
-├── simphtml.py                # Lightweight HTML parser
-├── TMWebDriver.py             # WebDriver integration for browser tool
-├── run_streamlit.py           # Streamlit launcher script
-├── HC_Agent.bat               # Windows quick-start batch
-├── requirements.txt           # Python dependencies
-├── assets/
-│   └── sys_prompt.txt         # System prompt
-├── memory/                    # Memory system
-│   ├── store.py               # Memory store (CSA + HCA scoring)
-│   ├── budget.py              # CDH context budget allocator
-│   ├── index.py               # L1 index layer
-│   └── persistence.py         # Memory persistence layer
-├── evolution/                 # Evolution system
-│   ├── paper_collector.py     # Auto paper collection
-│   ├── skill_upgrader.py      # Skill weight upgrading
-│   ├── reflection.py          # 10-turn reflection engine
-│   ├── meta_reflection.py     # Meta-reflection
-│   ├── failure_tracker.py     # Failure tracking
-│   ├── strategy_evolver.py    # Strategy evolution
-│   ├── experience_replay.py   # Experience replay
-│   └── autonomous_explorer.py # Autonomous exploration
-├── frontends/                 # User-facing interfaces
-│   ├── stapp.py               # Streamlit Web UI
-│   └── console.py             # Rich terminal interface
-└── state/                     # Persisted state
+|-- main.py                    # Entry point: CLI subcommands + startup
+|-- config.py                  # Configuration: HCConfig + get_config()
+|-- mykey.py                   # LLM credential config template
+|-- hc_agent.py                # Core orchestrator: wires all subsystems
+|-- agent_loop.py              # ReAct reasoning loop
+|-- llm_core.py                # LLM communication layer (streaming)
+|-- tools.py                   # Tool registry + built-in tools
+|-- self_reasoner.py           # Self-reasoning module
+|-- deep_thinker.py            # Multi-step deep reasoning before task execution
+|-- proactive.py               # Proactive behavior triggers
+|-- dynamic_prompt.py          # Dynamic prompt builder
+|-- browser_tool.py            # Browser automation tool
+|-- simphtml.py                # Lightweight HTML parser
+|-- TMWebDriver.py             # WebDriver integration for browser tool
+|-- run_streamlit.py           # Streamlit launcher script
+|-- HC_Agent.bat               # Windows quick-start batch
+|-- requirements.txt           # Python dependencies
+|-- hc_agent_sop.md            # Usage & development SOP
+|-- assets/
+|   +-- sys_prompt.txt         # System prompt
+|-- memory/                    # Memory system (runtime data)
+|-- evolution/                 # Evolution system
+|   |-- paper_collector.py     # Auto paper collection
+|   |-- skill_upgrader.py      # Skill weight upgrading
+|   |-- reflection.py          # 10-turn reflection engine
+|   |-- meta_reflection.py     # Meta-reflection
+|   |-- failure_tracker.py     # Failure tracking
+|   |-- strategy_evolver.py    # Strategy evolution
+|   |-- experience_replay.py   # Experience replay
+|   +-- autonomous_explorer.py # Autonomous exploration
+|-- frontends/                 # User-facing interfaces
+|   |-- stapp.py               # Streamlit Web UI
+|   +-- console.py             # Rich terminal interface
++-- state/                     # Persisted state
 ```
 
 ## Quick Start
@@ -86,58 +88,72 @@ provider_config = {
 
 Supported providers:
 
-| Provider   | Default Model              | Default Endpoint                          |
-|------------|----------------------------|-------------------------------------------|
-| mimo       | mimo-v2.5-pro             | https://token-plan-cn.xiaomimimo.com/v1   |
-| deepseek   | deepseek-chat             | https://api.deepseek.com/v1               |
-| openai     | gpt-4o                    | https://api.openai.com/v1                 |
-| claude     | claude-sonnet-4-20250514  | https://api.anthropic.com/v1              |
-| volcengine_maas | doubao-seed-1.6-250615 | https://ark.cn-beijing.volces.com/api/v3 |
+| Provider        | Default Model              | Default Endpoint                          |
+|-----------------|----------------------------|-------------------------------------------|
+| mimo            | mimo-v2.5-pro             | https://token-plan-cn.xiaomimimo.com/v1   |
+| deepseek        | deepseek-chat             | https://api.deepseek.com/v1               |
+| openai          | gpt-4o                    | https://api.openai.com/v1                 |
+| claude          | claude-sonnet-4-20250514  | https://api.anthropic.com/v1              |
+| volcengine_maas | doubao-seed-1.6-250615    | https://ark.cn-beijing.volces.com/api/v3  |
 
 ### 2. Install Dependencies
 
 ```bash
-pip install -r requirements.txt  # openai tiktoken pyyaml requests rich
+pip install -r requirements.txt
 ```
 
 ### 3. Launch
 
 ```bash
-# Web UI (Streamlit) -- recommended for interactive use
-python run_streamlit.py           # default port 8501
-python run_streamlit.py 8502      # custom port
+# Web UI (Streamlit) -- recommended
+cd your-project-path
+HC_Agent gateway
 
-# Terminal CLI
-python main.py
-
-# Windows quick-start
-HC_Agent.bat
+# Interactive terminal
+HC_Agent console
 
 # Single task mode
-python main.py --task "Analyze this codebase"
+HC_Agent task "Analyze this codebase"
 
-# Enable self-evolution + trigger on startup
-python main.py --self-evolve --evolve-on-start
+# Paper evolution cycle
+HC_Agent evolve
+
+# Reflection cycle
+HC_Agent reflect
+
+# Meta-reflection
+HC_Agent meta-reflect
+
+# Autonomous exploration
+HC_Agent explore
+
+# Failure pattern report
+HC_Agent failures
+```
+
+Or use the batch file on Windows:
+```bash
+HC_Agent.bat gateway
 ```
 
 ## Configuration
 
 ### config.py Fields
 
-| Section    | Field             | Default   | Description                              |
-|------------|-------------------|-----------|------------------------------------------|
-| llm        | provider          | mimo      | LLM provider                             |
-| llm        | model             | mimo-v2.5-pro | Model name                          |
-| llm        | context_window    | 128000    | Context window size                      |
-| memory     | max_items         | 500       | Max memory items                         |
-| memory     | context_budget    | 100000    | Context budget (tokens)                  |
-| csa        | keyword_weight    | 0.4       | Keyword match weight                     |
-| csa        | recency_weight    | 0.3       | Recency weight                           |
-| csa        | frequency_weight  | 0.3       | Frequency weight                         |
-| evolution  | max_paper_days    | 30        | Paper collection window (days)           |
-| evolution  | min_relevance     | 0.5       | Minimum relevance threshold              |
-| console    | port              | 8765      | Frontend port                            |
-| mcp        | enabled           | false     | Enable MCP protocol                      |
+| Section    | Field             | Default          | Description                              |
+|------------|-------------------|------------------|------------------------------------------|
+| llm        | provider          | mimo             | LLM provider                             |
+| llm        | model             | mimo-v2.5-pro    | Model name                               |
+| llm        | context_window    | 128000           | Context window size                      |
+| memory     | max_items         | 500              | Max memory items                         |
+| memory     | context_budget    | 100000           | Context budget (tokens)                  |
+| csa        | keyword_weight    | 0.4              | Keyword match weight                     |
+| csa        | recency_weight    | 0.3              | Recency weight                           |
+| csa        | frequency_weight  | 0.3              | Frequency weight                         |
+| evolution  | max_paper_days    | 30               | Paper collection window (days)           |
+| evolution  | min_relevance     | 0.5              | Minimum relevance threshold              |
+| console    | port              | 8765             | Frontend port                            |
+| mcp        | enabled           | false            | Enable MCP protocol                      |
 
 ### Environment Variables
 
@@ -146,22 +162,6 @@ python main.py --self-evolve --evolve-on-start
 | HC_API_KEY         | Universal API key fallback    |
 | DEEPSEEK_API_KEY   | DeepSeek specific key         |
 | OPENAI_API_KEY     | OpenAI specific key           |
-
-## CLI Options
-
-```
-python main.py [options]
-
-Options:
-  --task "description"        Single task mode
-  --evolve                    Trigger evolution cycle
-  --self-evolve               Enable autonomous evolution (continuous)
-  --reflection                Trigger reflection cycle
-  --meta-reflect              Trigger meta-reflection
-  --discover                  Trigger paper discovery
-  --evolve-on-start           Auto-trigger evolution on startup
-  --no-save                   Don't save state
-```
 
 ## License
 
